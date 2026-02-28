@@ -1,0 +1,45 @@
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# ── Jupyter ───────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+
+# ── Data files (large / raw) ─────────────────────────────────────────────────
+# Keep CSV source files in git if small; ignore large ones
+*.feather
+*.hdf5
+*.h5
+
+
+
+# Allow the outputs folder itself to be tracked
+!outputs/.gitkeep
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── IDEs ──────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── Logs & temp scripts ───────────────────────────────────────────────────────
+*.log
+_*.py
