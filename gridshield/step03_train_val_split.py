@@ -21,8 +21,8 @@ from utils import set_plot_style, save_plot
 from step02_feature_engineering import ALL_FEATURES
 
 # ──────────────────────────────────────────────────────────────────────────────
-TRAIN_END = "2019-12-31 23:59:59"    # Inclusive
-VAL_START = "2020-01-01 00:00:00"    # Inclusive
+TRAIN_END = "2018-08-31 23:59:59"    # Inclusive
+VAL_START = "2018-09-01 00:00:00"    # Inclusive
 TARGET    = "LOAD"
 
 
@@ -32,7 +32,7 @@ def split_features(df: pd.DataFrame):
     Returns: X_train, y_train, X_val, y_val, val_df
     """
     train_df = df[df["DateTime"] <= TRAIN_END].copy()
-    val_df   = df[df["DateTime"] >= VAL_START].copy()
+    val_df   = df[(df["DateTime"] >= VAL_START) & (df["DateTime"] <= "2019-12-31 23:59:59")].copy()
 
     # Strict temporal sanity checks
     assert train_df["DateTime"].max() < pd.Timestamp(VAL_START), \

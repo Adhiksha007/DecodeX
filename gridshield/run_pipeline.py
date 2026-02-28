@@ -177,7 +177,7 @@ def phase1_data_and_eda(skip_eda=False):
     info("Step 3: Time-aware train/val split (no leakage) ...")
     t0 = time.time()
     from step03_train_val_split import split_features, plot_split
-    X_train, y_train, X_val, y_val, val_df, feats = split_features(df)
+    X_train, y_train, X_val, y_val, val_df, feats = split_features(df)[:6]
     plot_split(df)
 
     train_df = df[df["DateTime"] <= TRAIN_END].copy()
@@ -234,7 +234,7 @@ def phase2_baseline_and_comparison(train_df, val_df, X_train, y_train,
 
     if skip_comparison:
         info("Step 11: Model comparison skipped (--skip-comparison flag)")
-        return naive_row, None
+        return naive_row, None, {}
 
     # ── Step 11: Fit 4 competing models ────────────────────────────────────────
     info("Step 11: Fitting 4 alternative models for comparison ...")
@@ -821,19 +821,16 @@ def main():
         phase1_data_and_eda(skip_eda=args.skip_eda)
 
     # PHASE 2
-    naive_row, df_cmp, extra_fullval_preds = \
-        phase2_baseline_and_comparison(
+    naive_row, df_cmp, extra_fullval_preds = phase2_baseline_and_comparison(
             train_df, val_df, X_train, y_train, X_val, y_val, feats,
             skip_comparison=args.skip_comparison)
 
     # PHASE 3 — pass fast-model full-val preds into Table B backtest
-    models, preds, df_table, savings = \
-        phase3_quantile_forecasting(X_train, y_train, X_val, y_val, val_df,
+    models, preds, df_table, savings = phase3_quantile_forecasting(X_train, y_train, X_val, y_val, val_df,
                                     feats, extra_fullval_preds=extra_fullval_preds)
 
     # PHASE 4
-    coverage, drop_kw, drop_pct = \
-        phase4_uncertainty_and_explainability(
+    coverage, drop_kw, drop_pct = phase4_uncertainty_and_explainability(
             X_train, y_train, X_val, y_val, val_df, models, feats, df)
 
     # SUMMARY
