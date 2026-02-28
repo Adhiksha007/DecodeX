@@ -1,79 +1,73 @@
-# Stage 2 — Regime Shift & Penalty Escalation Recalibration Brief
-### Case GRIDSHIELD | DecodeX 2026
+# Stage 2 — Regime Shift & Penalty Escalation
+### Case GRIDSHIELD | DecodeX 2026 | Effective 28 February 2026, 7:00 PM
 ### Team: NLD Synapse | N. L. Dalmia Institute of Management Studies & Research
 
 ---
 
-## 1. Structural Shock Diagnosis (Test Regime)
+## 1. Regulatory Update
 
-The Test data (May 1 – Jun 1, 2021) introduces a structural shock driven by two conflicting forces:
-
-**A. Summer Intensification (Upward Pressure)**
-Compared to the April 2021 training tail:
-- **Temperature:** +0.57°C (+1.8%)
-- **Heat Index:** +2.43°C (+6.3%) — crossing the critical 40°C threshold.
-- **Cool Factor:** +14.7% — indicating significantly higher AC cooling demand.
-
-**B. COVID-19 Second Wave vs Historical May (Downward Pressure)**
-Despite the severe heat, the absolute average load in the May 2021 test set (1,273 kW) was **139 kW lower** than the historical pre-COVID May average of 1,412 kW. Epidemic restrictions suppressed commercial load, overwriting the expected summer peak surge.
-
-**Verdict:** The test dataset is highly out-of-distribution (OOD), exhibiting an altered weekday/weekend elasticity where heat-driven residential load clashes with lockdown-suppressed commercial load.
+| Parameter | Stage 1 | Stage 2 |
+|---|---|---|
+| Peak under-forecast penalty | ₹ 4 / kWh | **₹ 6 / kWh** |
+| Off-peak under-forecast penalty | ₹ 4 / kWh | ₹ 4 / kWh (unchanged) |
+| Over-forecast penalty | ₹ 2 / kWh | ₹ 2 / kWh (unchanged) |
+| Test period | Training history | **January 2021–April 2021 (11,520 slots)** |
 
 ---
 
-## 2. Model Recalibration Discipline
+## 2. Recalibrated Optimal Quantiles
 
-In Stage 2, the penalty structure was escalated:
-*   **Off-Peak:** ₹4 Under / ₹2 Over (Unchanged)
-*   **Peak (18:00–22:00):** **₹6 Under** / ₹2 Over (Escalated)
+```
+τ*_peak   = 6 / (6 + 2) = 0.750  ← peak hours   (Q0.75 is now exact τ*)
+τ*_offpk  = 4 / (4 + 2) = 0.667  ← off-peak     (unchanged)
+```
 
-Our recalibration discipline rests purely on the mathematics of asymmetric loss functions. We did not panic-retrain models; we simply **re-optimized the target quantile ($ \tau $).**
-
-The optimal quantile formula is: $ \tau^* = \frac{C_{under}}{C_{under} + C_{over}} $
-
-1.  **Off-Peak Strategy Remains Q0.667:** $ \tau_{offpeak} = \frac{4}{4 + 2} = 0.667 $
-2.  **Peak Strategy Escalates to Q0.75:** $ \tau_{peak} = \frac{6}{6 + 2} = 0.75 $
-
-We activated our **Hybrid Q0.667 + Q0.75 Peak Model**. This seamlessly stitches the Q0.667 forecast for off-peak hours with the heavily buffered Q0.75 forecast for the 18:00–22:00 peak hours, perfectly matching the Stage 2 regulatory constraint perfectly without requiring a new model architecture.
+**Rolling bias correction:** -26.9 kW estimated on Jan–Feb 2020 (pre-COVID).
+Applied to all corrected models: corrected = raw + (-26.9) kW.
 
 ---
 
-## 3. Quantified Impact Assessment
+## 3. Test Set Results (January 2021–April 2021)
 
-We evaluated the hybrid strategy on the unseen 32-day shock period (2,977 slots) under the new penalty constraints.
-
-### Test Penalty Outcomes (May 2021 Regime, ₹6 Peak Penalty)
-
-| Model | Total Penalty (₹) | Peak Penalty (₹) | Off-Peak (₹) | Bias (%) | 95th Pct. Dev (kW) |
+| Strategy | S1 Total (₹) | S2 Total (₹) | Shock (₹) | S2 Peak (₹) | Bias (%) |
 |---|---|---|---|---|---|
-| Naive lag_672 | 10,90,700 | 2,53,861 | 8,36,838 | -0.5% | 283.6 |
-| LightGBM Q0.667 | 5,54,743 | 1,30,731 | 4,24,011 | +7.1% | 251.2 |
-| **Hybrid Q0.667 + Q0.75** ★ | **5,56,427** | **1,32,415** | 4,24,011 | +7.2% | **251.2** |
-*Note: LightGBM MSE appears cheaper in this specific 32-day window strictly because the COVID lockdown suppressed the load downward towards the mean. Because Q0.667/Q0.75 actively target the upper quantiles to avoid the ₹4/₹6 penalties, they incur a temporary over-forecast penalty (₹2) during the lockdown anomaly. However, this is the correct long-term risk positioning for a distribution company.*
+| Naive (lag₆₇₂) | 608,010 | 640,246 | +32,236 | 118,032 | -1.77% |
+| LightGBM MSE (raw) | 372,559 | 375,678 | +3,120 | 69,941 | +4.63% |
+| LightGBM Q0.667 (raw) | 382,900 | 383,808 | +908 | 68,288 | +5.25% |
+| Hybrid Q0.75 (raw) | 390,497 | 391,220 | +723 | 75,699 | +5.37% |
+| BiasCorr + MSE | 315,683 | 323,062 | +7,379 | 61,152 | +2.30% |
+| BiasCorr + Q0.60 [OPTIMAL] ★ | 292,186 | 298,317 | +6,131 | 54,560 | +2.17% |
+| BiasCorr + Hybrid Q0.75 ★ | 306,033 | 308,731 | +2,698 | 57,770 | +3.03% |
 
-**Impact Metrics vs Stage 1 Baseline:**
-*   **Penalty Reduction:** The Hybrid LightGBM strategy reduced total financial exposure by **49% (₹5,34,273 saved)** compared to the Naive baseline over just 32 days.
-*   **Peak Exposure Mitigated:** By escalating to Q0.75, we increased our forecast bias systematically during the 18:00–22:00 window to shield the grid from the severe ₹6/kWh under-forecast penalty.
+### Penalty Shock (Naive Baseline)
+
+| | Amount |
+|---|---|
+| Naive Stage 1 (₹4 peak) | ₹ 608,010 |
+| Naive Stage 2 (₹6 peak) | ₹ 640,246 |
+| **Shock from escalation** | **₹ 32,236 (+5.3%)** |
+
+### Best Strategy: BiasCorr + Hybrid Q0.75
+
+| Metric | Value |
+|---|---|
+| Stage 2 Total Penalty | ₹ 308,731 |
+| Peak Penalty  | ₹ 57,770 |
+| Off-Peak Penalty | ₹ 250,962 |
+| **Saving vs Naive (Stage 2)** | **₹ 331,515 (51.8%)** |
+| Forecast Bias | +3.03% |
+
+---
+
+## 4. Strategy Recalibration
+
+| | Stage 1 | Stage 2 |
+|---|---|---|
+| Off-peak model | Q0.667 (τ*) | Q0.667 (τ*, unchanged) |
+| Peak model | Q0.75 (buffer) | **Q0.75 (τ*-derived, mandatory)** |
+| Bias correction | None | −26.9 kW (pre-COVID window) |
+| No retraining needed | ✓ | ✓ |
 
 ---
 
-## 4. Trade-off Recognition
-
-**A. Bias vs Exposure (The Over-Forecasting Trade-off)**
-By deploying Q0.75 during peak hours, we are intentionally inflating the forecast (+7.2% average bias). We accept a high volume of minor ₹2/kWh over-forecast penalties to eliminate the catastrophic tail-risk of ₹6/kWh under-forecast penalties. This is a deliberate "insurance premium" paid to protect the grid.
-
-**B. Responsiveness vs Stability**
-The `lag_672` (same time last week) feature is our strongest predictor, but it creates a 7-day memory lag when the regime shifts suddenly (e.g., lockdown announcements). We trade this short-term lag for long-term weekly stability. 
-
----
-
-## 5. Preparedness for Stage 3 Optimization
-
-Our pipeline is structurally prepared for Stage 3 because it decouples the **statistical machine learning** from the **financial optimizer**:
-
-1.  **Fully Parameterised Loss Functions:** Because we use Quantile Regression, any further changes to penalty rates or the introduction of storage/battery constraints simply requires pulling a new quantile (e.g., $ \tau=0.85 $) without rewriting any feature engineering or tree-building logic.
-2.  **Uncertainty Bands as Inputs:** We have already quantified P10 (Q0.10) and P90 (Q0.90) bounds. If Stage 3 introduces a stochastic optimization problem (like battery dispatch), our model provides full probabilistic distributions, not just point estimates.
-3.  **Modular Feature Blocks:** The `is_covid_period` flag and `days_to_holiday` counters prove the model can ingest and isolate exogenous structural shocks immediately without corrupting the core weather and time-of-day coefficients.
-
----
-*Interim Structural Recalibration Brief | 28 February 2026 | GRIDSHIELD v1.1*
+*Stage 2 submission | 28 February 2026 | GRIDSHIELD v2.0*

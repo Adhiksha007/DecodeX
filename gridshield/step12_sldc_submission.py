@@ -124,7 +124,7 @@ def build_future_features(historical_df: pd.DataFrame,
     future["quarter"]     = dt.dt.quarter
     future["slot"]        = future["hour"] * 4 + future["minute"] // 15
     future["is_weekend"]   = (future["day_of_week"] >= 5).astype(np.int8)
-    future["is_peak_hour"] = ((future["hour"] >= 18) & (future["hour"] <= 22)).astype(np.int8)
+    future["is_peak_hour"] = ((future["hour"] >= 18) & (future["hour"] <= 21)).astype(np.int8)  # matches training (18:00–21:59)
 
     # Cyclical
     future["sin_hour"]  = np.sin(2 * np.pi * future["hour"]        / 24)

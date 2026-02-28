@@ -137,20 +137,22 @@ def divider():
 def phase1_data_and_eda(skip_eda=False):
     """
     PHASE 1: Load raw CSVs, run EDA plots, build the 31-feature matrix,
-    perform time-aware train/validation split.
+    perform 3-way time-aware split (train / dev / val).
 
     Returns
     -------
-    df        : full feature-engineered DataFrame
-    train_df  : training rows (Apr 2013 – Dec 2019)
-    val_df    : validation rows (Jan 2020 – Apr 2021)
-    X_train, y_train, X_val, y_val : numpy arrays
-    feats     : list of feature column names
+    df               : full feature-engineered DataFrame
+    train_df         : training rows (Apr 2013 – Sep 2019)
+    val_df           : validation rows (Jan 2020 – Apr 2021)
+    X_train, y_train : training arrays
+    X_dev,   y_dev   : dev arrays for early stopping (Oct–Dec 2019)
+    X_val,   y_val   : validation arrays for unbiased reporting
+    feats            : list of feature column names
     """
     section("1–3", "DATA LOADING, EDA & FEATURE ENGINEERING",
-            "Raw CSVs -> 31-feature matrix -> time-aware split")
+            "Raw CSVs -> 31-feature matrix -> 3-way time-aware split")
 
-    # ── Step 1: EDA ────────────────────────────────────────────────────────────
+    # ── Step 1: EDA ───────────────────────────────────────────────────────
     if not skip_eda:
         info("Step 1: Exploratory Data Analysis ...")
         t0 = time.time()
@@ -161,7 +163,7 @@ def phase1_data_and_eda(skip_eda=False):
         info("Step 1: EDA skipped (--skip-eda flag set)")
         df_events = None
 
-    # ── Step 2: Feature Engineering ────────────────────────────────────────────
+    # ── Step 2: Feature Engineering ───────────────────────────────────────
     info("Step 2: Feature Engineering ...")
     t0 = time.time()
     if os.path.exists(FEATURES_PATH):
@@ -173,15 +175,16 @@ def phase1_data_and_eda(skip_eda=False):
         df.to_parquet(FEATURES_PATH, index=False)
     ok(f"Step 2: {df.shape[1]} features, {len(df):,} rows", time.time() - t0)
 
-    # ── Step 3: Split ──────────────────────────────────────────────────────────
-    info("Step 3: Time-aware train/val split (no leakage) ...")
+    # ── Step 3: 3-way split ──────────────────────────────────────────────
+    info("Step 3: 3-way time-aware split (train / dev / val) ...")
     t0 = time.time()
-    from step03_train_val_split import split_features, plot_split
-    X_train, y_train, X_val, y_val, val_df, feats = split_features(df)[:6]
+    from step03_train_val_split import split_with_dev, plot_split
+    X_train, y_train, X_dev, y_dev, X_val, y_val, val_df, feats = split_with_dev(df)
     plot_split(df)
 
-    train_df = df[df["DateTime"] <= TRAIN_END].copy()
-    ok(f"Step 3: Train {len(train_df):,} rows | Val {len(val_df):,} rows", time.time() - t0)
+    train_df = df[df["DateTime"] <= "2019-09-30 23:59:59"].copy()
+    ok(f"Step 3: Train {len(train_df):,} rows | Dev {len(y_dev):,} rows | Val {len(val_df):,} rows",
+       time.time() - t0)
 
     print()
     print("  PHASE 1 FINDINGS:")
@@ -191,7 +194,7 @@ def phase1_data_and_eda(skip_eda=False):
     print("  - Weekday vs Weekend load differs by ~8%, Holidays differ by ~9%")
     print("  - Temperature (|r|=0.69) is strongest single weather predictor")
 
-    return df, train_df, val_df, X_train, y_train, X_val, y_val, feats
+    return df, train_df, val_df, X_train, y_train, X_dev, y_dev, X_val, y_val, feats
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -562,10 +565,14 @@ def phase2_baseline_and_comparison(train_df, val_df, X_train, y_train,
 # ──────────────────────────────────────────────────────────────────────────────
 
 def phase3_quantile_forecasting(X_train, y_train, X_val, y_val, val_df, feats,
+                                X_dev=None, y_dev=None,
                                 extra_fullval_preds=None):
     """
     PHASE 3: Train the three primary LightGBM models, run the FULL 16-month
     ABT penalty backtest, and apply the peak-hour risk strategy.
+
+    X_dev / y_dev: October–December 2019 dev set used for clean early stopping.
+                   Validation set (Jan 2020–Apr 2021) is NEVER touched during training.
 
     extra_fullval_preds: dict of {label: full-val-forecast-array} from phase2
     for HW-ETS, Linear Regression, Random Forest. SARIMA excluded (too slow).
@@ -587,7 +594,9 @@ def phase3_quantile_forecasting(X_train, y_train, X_val, y_val, val_df, feats,
     models = load_models()
     if len(models) < 3:
         info("  No cache — training from scratch (may take a few minutes) ...")
-        models = train_models(X_train, y_train, X_val, y_val, feature_names=feats)
+        models = train_models(X_train, y_train, X_val, y_val,
+                              X_dev=X_dev, y_dev=y_dev,
+                              feature_names=feats)
         save_models(models)
     preds = predict_all(models, X_val)
     ok(f"Step 5: {len(models)} models ready", time.time() - t0)
@@ -817,7 +826,7 @@ def main():
     total_start = time.time()
 
     # PHASE 1
-    df, train_df, val_df, X_train, y_train, X_val, y_val, feats = \
+    df, train_df, val_df, X_train, y_train, X_dev, y_dev, X_val, y_val, feats = \
         phase1_data_and_eda(skip_eda=args.skip_eda)
 
     # PHASE 2
@@ -825,9 +834,11 @@ def main():
             train_df, val_df, X_train, y_train, X_val, y_val, feats,
             skip_comparison=args.skip_comparison)
 
-    # PHASE 3 — pass fast-model full-val preds into Table B backtest
-    models, preds, df_table, savings = phase3_quantile_forecasting(X_train, y_train, X_val, y_val, val_df,
-                                    feats, extra_fullval_preds=extra_fullval_preds)
+    # PHASE 3 — pass dev set for clean early stopping + fast-model preds for Table B
+    models, preds, df_table, savings = phase3_quantile_forecasting(
+        X_train, y_train, X_val, y_val, val_df, feats,
+        X_dev=X_dev, y_dev=y_dev,
+        extra_fullval_preds=extra_fullval_preds)
 
     # PHASE 4
     coverage, drop_kw, drop_pct = phase4_uncertainty_and_explainability(

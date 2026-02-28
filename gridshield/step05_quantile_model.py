@@ -12,7 +12,12 @@ Models trained:
   1. LightGBM MSE       — baseline ML model (mean predictor)
   2. LightGBM Q0.667    — optimal quantile for ABT penalty minimisation
   3. LightGBM Q0.75     — extra buffer for peak hours (18–21h)
-  
+
+Early stopping:
+  Uses a separate Dev set (Oct–Dec 2019) for early stopping, so the
+  Validation set (Jan 2020–Apr 2021) is NEVER seen during training in any form.
+  This ensures reported val metrics are truly unbiased.
+
 All models saved to outputs/models/.
 """
 
@@ -60,40 +65,57 @@ def build_quantile_model(alpha: float) -> LGBMRegressor:
 # ──────────────────────────────────────────────────────────────────────────────
 # TRAINING
 # ──────────────────────────────────────────────────────────────────────────────
-def train_models(X_train, y_train, X_val, y_val, feature_names=None):
+def train_models(X_train, y_train, X_val, y_val,
+                 X_dev=None, y_dev=None,
+                 feature_names=None):
     """
-    Train all three primary models with early stopping on validation set.
+    Train all three primary models with early stopping.
+
+    Parameters
+    ----------
+    X_train, y_train : training data (model fitting)
+    X_val,   y_val   : validation data (unbiased reporting — NEVER used for stopping)
+    X_dev,   y_dev   : dev data for early stopping (preferred: Oct–Dec 2019).
+                       If None, falls back to X_val (less clean but still works).
+    feature_names    : list of feature names for LightGBM
+
     Returns dict of fitted models.
     """
+    # Use dev set for early stopping if provided, otherwise fall back to val
+    stop_X = X_dev  if X_dev  is not None else X_val
+    stop_y = y_dev  if y_dev  is not None else y_val
+    stop_label = "dev (Oct-Dec 2019)" if X_dev is not None else "val [fallback]"
+    print(f"  Early stopping monitor: {stop_label}  ({len(stop_y):,} rows)")
+
     models = {}
     callbacks = [lgb.early_stopping(stopping_rounds=50, verbose=False),
                  lgb.log_evaluation(period=100)]
 
-    # ── 1. MSE model ──────────────────────────────────────────────────────────
+    # ── 1. MSE model ──────────────────────────────────────────────────────
     print("\n  [1/3] Training LightGBM MSE model …")
     m_mse = build_mse_model()
     m_mse.fit(X_train, y_train,
-              eval_set=[(X_val, y_val)],
+              eval_set=[(stop_X, stop_y)],
               callbacks=callbacks,
               feature_name=feature_names or "auto")
     models["lgbm_mse"] = m_mse
     print(f"        Best iteration: {m_mse.best_iteration_}")
 
-    # ── 2. Q0.667 model ───────────────────────────────────────────────────────
+    # ── 2. Q0.667 model ────────────────────────────────────────────────
     print(f"\n  [2/3] Training LightGBM Q{OPTIMAL_QUANTILE:.4f} model …")
     m_q667 = build_quantile_model(OPTIMAL_QUANTILE)
     m_q667.fit(X_train, y_train,
-               eval_set=[(X_val, y_val)],
+               eval_set=[(stop_X, stop_y)],
                callbacks=callbacks,
                feature_name=feature_names or "auto")
     models["lgbm_q667"] = m_q667
     print(f"        Best iteration: {m_q667.best_iteration_}")
 
-    # ── 3. Q0.75 peak model ───────────────────────────────────────────────────
+    # ── 3. Q0.75 peak model ─────────────────────────────────────────────
     print(f"\n  [3/3] Training LightGBM Q{PEAK_QUANTILE} model (peak-hour buffer) …")
     m_q75 = build_quantile_model(PEAK_QUANTILE)
     m_q75.fit(X_train, y_train,
-              eval_set=[(X_val, y_val)],
+              eval_set=[(stop_X, stop_y)],
               callbacks=callbacks,
               feature_name=feature_names or "auto")
     models["lgbm_q75"] = m_q75

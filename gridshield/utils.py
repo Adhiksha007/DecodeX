@@ -27,14 +27,26 @@ WEATHER_FILE = os.path.join(DATA_DIR, "External_Factor_Data_Train.csv")
 EVENTS_FILE  = os.path.join(DATA_DIR, "Events_Data.csv")
 
 # ──────────────────────────────────────────────────────────────────────────────
-# PENALTY CONSTANTS (Maharashtra ABT)
+# PENALTY CONSTANTS (Maharashtra ABT — Stage 1)
 # ──────────────────────────────────────────────────────────────────────────────
-C_UNDER = 4.0   # ₹ per kWh — actual > forecast (under-forecast)
-C_OVER  = 2.0   # ₹ per kWh — forecast > actual (over-forecast)
+C_UNDER = 4.0   # ₹ per kWh — actual > forecast (under-forecast), all hours
+C_OVER  = 2.0   # ₹ per kWh — forecast > actual (over-forecast), all hours
 
 # Optimal quantile for asymmetric penalty: τ* = C_under / (C_under + C_over)
 OPTIMAL_QUANTILE = C_UNDER / (C_UNDER + C_OVER)   # 0.6667
 PEAK_QUANTILE    = 0.75                            # extra buffer for peak hours
+
+# PENALTY CONSTANTS — Stage 2 (Revised Peak Penalty effective 28 Feb 2026)
+# ──────────────────────────────────────────────────────────────────────────────
+# Off-peak: unchanged (₹4/₹2). Peak under-forecast escalated to ₹6/kWh.
+C_UNDER_PEAK_S2 = 6.0   # ₹ per kWh — peak under-forecast (Stage 2 only)
+C_OVER_PEAK_S2  = 2.0   # ₹ per kWh — peak over-forecast  (unchanged)
+
+# New penalty-optimal quantiles under Stage 2
+# τ*_peak   = 6 / (6 + 2) = 0.750  ← Q0.75 is now mathematically optimal at peak
+# τ*_offpk  = 4 / (4 + 2) = 0.667  ← unchanged
+OPTIMAL_QUANTILE_PEAK_S2    = C_UNDER_PEAK_S2 / (C_UNDER_PEAK_S2 + C_OVER_PEAK_S2)  # 0.75
+OPTIMAL_QUANTILE_OFFPEAK_S2 = C_UNDER / (C_UNDER + C_OVER)                           # 0.667
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -84,7 +96,8 @@ def compute_penalty(actual: np.ndarray, forecast: np.ndarray,
     under_penalty  = C_UNDER * under_kwh.sum()
     over_penalty   = C_OVER  * over_kwh.sum()
 
-    # Bias: positive = under-forecast on average
+    # Bias: +ve = over-forecast (forecast > actual); -ve = under-forecast (actual > forecast)
+    # Q0.667 is designed to over-forecast, so its bias_pct should be positive.
     bias_pct = (forecast.mean() - actual.mean()) / actual.mean() * 100
 
     result = {
@@ -104,6 +117,55 @@ def compute_penalty(actual: np.ndarray, forecast: np.ndarray,
             C_UNDER * (under_kwh[~mask]).sum() + C_OVER * (over_kwh[~mask]).sum(), 2)
 
     return result
+
+
+def compute_penalty_s2(actual: np.ndarray, forecast: np.ndarray,
+                        is_peak: np.ndarray) -> dict:
+    """
+    Stage 2 penalty: revised peak under-forecast rate (₹6/kWh).
+
+    Peak hours (is_peak=1):
+        Under-forecast : ₹6 / kWh   ← escalated
+        Over-forecast  : ₹2 / kWh   (unchanged)
+    Off-peak (is_peak=0):
+        Under-forecast : ₹4 / kWh   (unchanged)
+        Over-forecast  : ₹2 / kWh   (unchanged)
+
+    New penalty-optimal quantiles:
+        τ*_peak   = 6/(6+2) = 0.750
+        τ*_offpk  = 4/(4+2) = 0.667
+    """
+    delta    = actual - forecast      # +ve = under-forecast
+    under_kw = np.maximum(delta,  0.0)
+    over_kw  = np.maximum(-delta, 0.0)
+
+    under_kwh = under_kw * 0.25       # kW → kWh (15-min slots)
+    over_kwh  = over_kw  * 0.25
+
+    peak_mask    = is_peak.astype(bool)
+    off_mask     = ~peak_mask
+
+    # Peak penalties (₹6 under, ₹2 over)
+    peak_pen  = (C_UNDER_PEAK_S2 * under_kwh[peak_mask].sum()
+                 + C_OVER_PEAK_S2  * over_kwh[peak_mask].sum())
+
+    # Off-peak penalties (₹4 under, ₹2 over — same as Stage 1)
+    offpk_pen = (C_UNDER * under_kwh[off_mask].sum()
+                 + C_OVER * over_kwh[off_mask].sum())
+
+    total_pen = peak_pen + offpk_pen
+
+    # Bias: +ve = over-forecast (forecast > actual)
+    bias_pct  = (forecast.mean() - actual.mean()) / actual.mean() * 100
+
+    return {
+        "total_penalty_INR"   : round(total_pen,  2),
+        "peak_penalty_INR"    : round(peak_pen,   2),
+        "offpeak_penalty_INR" : round(offpk_pen,  2),
+        "forecast_bias_pct"   : round(bias_pct,   4),
+        "p95_abs_dev_kW"      : round(np.percentile(np.abs(delta), 95), 2),
+        "rmse_kW"             : round(np.sqrt(np.mean(delta**2)), 2),
+    }
 
 
 def penalty_table_row(name: str, actual: np.ndarray, forecast: np.ndarray,
