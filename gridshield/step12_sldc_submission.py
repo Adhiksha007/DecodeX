@@ -124,7 +124,7 @@ def build_future_features(historical_df: pd.DataFrame,
     future["quarter"]     = dt.dt.quarter
     future["slot"]        = future["hour"] * 4 + future["minute"] // 15
     future["is_weekend"]   = (future["day_of_week"] >= 5).astype(np.int8)
-    future["is_peak_hour"] = ((future["hour"] >= 18) & (future["hour"] <= 21)).astype(np.int8)
+    future["is_peak_hour"] = ((future["hour"] >= 18) & (future["hour"] <= 22)).astype(np.int8)
 
     # Cyclical
     future["sin_hour"]  = np.sin(2 * np.pi * future["hour"]        / 24)
@@ -302,9 +302,9 @@ def plot_sldc_forecast(sldc: pd.DataFrame, historical_df: pd.DataFrame):
     # Highlight peak windows
     for day in pd.to_datetime(sldc["Date"].unique()):
         peak_s = day + pd.Timedelta(hours=18)
-        peak_e = day + pd.Timedelta(hours=21)
+        peak_e = day + pd.Timedelta(hours=22)
         ax.axvspan(peak_s, peak_e, alpha=0.08, color="#FFD700",
-                   label="Peak Hours 18-21h (Q0.75 buffer)")
+                   label="Peak Hours 18-22h (Q0.75 buffer)")
 
     # Format
     ax.xaxis.set_major_locator(mdates.HourLocator(interval=6))

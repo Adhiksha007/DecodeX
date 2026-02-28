@@ -54,8 +54,8 @@ def run():
     # Highlight peak hours
     for dt in plot_df[plot_df['IsPeakHour'] == 1]['DateTime'].dt.date.unique():
         start = pd.Timestamp(dt) + pd.Timedelta(hours=18)
-        end   = pd.Timestamp(dt) + pd.Timedelta(hours=21)
-        ax1.axvspan(start, end, alpha=0.1, color='#FFD700', label='Peak Hours (18-21h)' if start == plot_df['DateTime'].min().normalize() + pd.Timedelta(hours=18) else "")
+        end   = pd.Timestamp(dt) + pd.Timedelta(hours=22)
+        ax1.axvspan(start, end, alpha=0.1, color='#FFD700', label='Peak Hours (18-22h)' if start == plot_df['DateTime'].min().normalize() + pd.Timedelta(hours=18) else "")
         
     ax1.set_title('Step 12 SLDC Forecast vs Actual Ground Truth — May 1-2, 2021', fontweight='bold')
     ax1.set_ylabel('Load (kW)')
@@ -64,23 +64,26 @@ def run():
     # Panel 2: Residuals and ABT Penalty visualization
     ax2 = axes[1]
     resids = plot_df['LOAD'] - plot_df['Forecast_kW']
+    is_peak = plot_df['IsPeakHour'] == 1
     
-    # Red = Underforecast (Rs 4 penalty), Blue = Overforecast (Rs 2 penalty)
+    # Red = Underforecast, Blue = Overforecast
     colors = ['#E84855' if r > 0 else '#2E86AB' for r in resids]
     
     ax2.bar(plot_df['DateTime'], resids, width=0.01, color=colors, alpha=0.7)
     ax2.axhline(0, color='black', lw=1.2)
     
-    # Calc penalties
-    under_pen = resids[resids > 0].sum() * 4
+    # Calc penalties (Stage 2: Rs 6/kWh peak, Rs 4/kWh off-peak under-forecast)
+    under_offpk = resids[(resids > 0) & (~is_peak)].sum() * 4
+    under_peak  = resids[(resids > 0) & (is_peak)].sum() * 6
+    under_pen = under_offpk + under_peak
     over_pen  = abs(resids[resids < 0].sum()) * 2
     total_pen = under_pen + over_pen
     
-    ax2.text(0.01, 0.95, f"2-Day ABT Penalty (Estimated):\nTotal: Rs {total_pen:,.0f}\nUnder-forecast (Red): Rs {under_pen:,.0f}\nOver-forecast (Blue): Rs {over_pen:,.0f}", 
+    ax2.text(0.01, 0.95, f"2-Day ABT Penalty (Estimated):\nTotal: Rs {total_pen:,.0f}\nUnder-forecast (Red): Rs {under_pen:,.0f} (Peak ₹6, Off-Peak ₹4)\nOver-forecast (Blue): Rs {over_pen:,.0f} (₹2)", 
              transform=ax2.transAxes, fontsize=11, verticalalignment='top', 
              bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
              
-    ax2.set_title('Residuals (Actual - Forecast) — Red bars show severe ₹4/kWh exposure risk', fontweight='bold')
+    ax2.set_title('Residuals (Actual - Forecast) — Red bars show severe exposure risk (₹6 Peak / ₹4 Off-peak)', fontweight='bold')
     ax2.set_ylabel('Error (kW)')
     
     import matplotlib.dates as mdates
